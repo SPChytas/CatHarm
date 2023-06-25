@@ -1,4 +1,3 @@
-
 from torchvision.transforms.functional import rotate
 from torchvision.transforms import Resize
 import torch.nn.functional as F
@@ -6,22 +5,15 @@ import torch
 from torchvision.io import read_image
 from torchvision import transforms
 import torchvision
-
 from PIL import Image
-
 import numpy as np
-
 from torch.utils.data import Dataset, DataLoader
-
 import random
 from tqdm import tqdm
 import pandas as pd
-import numpy as np 
-
+import numpy as np
 import nibabel as nib
 import joblib
-
-
 
 def collate_fn(samples):
 
@@ -38,17 +30,7 @@ def collate_fn(samples):
 			rotations,
 			scales)
 
-
-
-
-
-
-
-
-
-
 class numerical_dataset(Dataset):
-
 	def __init__(self, data, metadata):
 		self.data = data
 		self.metadata = metadata
@@ -59,20 +41,11 @@ class numerical_dataset(Dataset):
 	def __getitem__(self, index):
 		return (torch.FloatTensor(self.data[index]), torch.FloatTensor(self.metadata[index]))
 
-
-
-
-
-
-
-
 class image_dataset(Dataset):
-
 	def __init__(self, files_path, metadata):
 
 		self.files_path = files_path
 		self.metadata = metadata
-
 
 	def __len__(self):
 		return len(self.files_path)
@@ -85,20 +58,6 @@ class image_dataset(Dataset):
 		image /= max(np.max(image), -np.min(image))
 
 		return torch.unsqueeze(torch.FloatTensor(image), 0), torch.FloatTensor(self.metadata[index])
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 class ADNI(Dataset):
 
@@ -148,15 +107,6 @@ class ADNI(Dataset):
 		return imgs, attrs, label
 
 
-
-
-
-
-
-
-
-
-
 class ADCP(Dataset):
 
 	def __init__(self, img_names, metadata, attributes=['Age', 'Gender'], return_type='int'):
@@ -203,27 +153,6 @@ class ADCP(Dataset):
 		imgs = np.array(imgs)
 
 		return imgs, attrs, label
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 class GattrDataset(Dataset):
 	"""

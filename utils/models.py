@@ -6,10 +6,6 @@ import torch.nn.functional as F
 
 # from unet_parts import *
 
-
-
-
-
 class MLP_encdec(nn.Module):
 	def __init__(self, in_depth, hidden_depths, out_depth, batchnorm=True, dropout=0.):
 		super(MLP_encdec, self).__init__()
@@ -891,16 +887,6 @@ class TauResNet(nn.Module):
 		return nn.Sequential(*layers)
 
 
-
-
-
-
-
-
-
-
-
-
 class CelebA_encoder(nn.Module):
 
 
@@ -967,14 +953,6 @@ class CelebA_decoder(nn.Module):
 		x = self.unflatten(x)
 		x = self.decoder_conv(x)
 		return x
-
-
-
-
-
-
-
-
 
 
 class AutoEncoder(nn.Module):

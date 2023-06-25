@@ -1,0 +1,10 @@
+file: data/imaging_data/(256, 256, 156)
+output_file: experiments/imaging_data/(256, 256, 156)/CatHarm_0
+latent_dim: 10
+epochs: 100
+batch_size: 128
+lr: 0.001
+morph_loss_factor: 1
+seed: 42
+equivariant_variables: ['sex', 'Age quant']
+age_bin: 10
