@@ -1190,15 +1190,16 @@ class Encoder(nn.Module):
 				 img_size: int = 256,
 				 in_channels: int = 8,
 				 patch_size: int = 16,
-				 batch_size: int = 32,
-				 num_transformer_layer: int = 24,
+				 num_transformer_layer: int = 6,
 				 embedding_dim: int = 2048,
 				 mlp_size: int = 4096,
 				 num_heads: int = 16,
 				 attention_dropout: float = .0,
 				 mlp_dropout: float = .1,
-				 embedding_dropout: float = .1):
+				 embedding_dropout: float = .1,
+				 final_latent_space_dim: int = 2048):
 		super().__init__()
+		self.num_patches = (img_size * img_size) // (patch_size ** 2)
 		self.conv_block = Consecutive3DConvLayerBlock(in_channel = conv_in_features,
 													  out_channel = conv_out_features,
 													  kernel_size = kernel_size,
@@ -1207,31 +1208,30 @@ class Encoder(nn.Module):
 		self.vit_block = ViTEncoder(img_size = img_size,
 									in_channels = in_channels,
 									patch_size = patch_size,
-									batch_size = batch_size,
 									num_transformer_layer = num_transformer_layer,
 									embedding_dim = embedding_dim,
 									mlp_size = mlp_size,
 									num_heads = num_heads,
 									attention_dropout = attention_dropout,
 									mlp_dropout = mlp_dropout,
-									embedding_dropout = embedding_dropout)
-
+									embedding_dropout = embedding_dropout,
+									final_latent_space_dim = final_latent_space_dim)
 	def forward(self, x):
-		return self.vit_block(self.conv_block(x)) # add speed
+		return self.vit_block(self.conv_block(x))
 
 class ViTEncoder(nn.Module):
 	def __init__(self,
 				 img_size: int = 256,
 				 in_channels: int = 8,
 				 patch_size: int = 16,
-				 batch_size: int = 32,
-				 num_transformer_layer: int = 24,
+				 num_transformer_layer: int = 6,
 				 embedding_dim: int = 2048,
 				 mlp_size: int = 4096,
 				 num_heads: int = 16,
 				 attention_dropout: float = .0,
 				 mlp_dropout: float = .1,
-				 embedding_dropout: float = .1):
+				 embedding_dropout: float = .1,
+				 final_latent_space_dim: int = 2048):
 		super().__init__()
 
 		assert img_size % patch_size == 0, f"Input Size: {img_size} must be divisible by Patch " \
@@ -1239,8 +1239,7 @@ class ViTEncoder(nn.Module):
 
 		self.num_patches = (img_size * img_size) // (patch_size ** 2)
 
-		self.position_embedding = PositionEmbedding(batch_size = batch_size,
-													num_patches = self.num_patches,
+		self.position_embedding = PositionEmbedding(num_patches = self.num_patches,
 													embedding_dimension = embedding_dim)
 
 		self.embedding_dropout = nn.Dropout(p = embedding_dropout)
@@ -1258,9 +1257,12 @@ class ViTEncoder(nn.Module):
 																	  attention_dropout) for _
 												 in range(num_transformer_layer)])
 
-		self.latent_space = nn.Sequential(nn.LayerNorm(normalized_shape = embedding_dim),
-										  nn.Linear(in_features = embedding_dim,
-													out_features = embedding_dim))
+		self.latent_space = nn.Sequential(nn.Flatten(),
+										  nn.LayerNorm(normalized_shape = embedding_dim *
+																		  self.num_patches),
+										  nn.Linear(in_features = embedding_dim * self.num_patches,
+													out_features = final_latent_space_dim),
+										  nn.Dropout(mlp_dropout))
 
 	def forward(self, x):
 		x = self.patch_embedding(x)
@@ -1304,7 +1306,7 @@ class Consecutive3DConvLayerBlock(nn.Module):
 		x = self.conv1(x)
 		if self.padding:
 			x = _pad_3D_image_patches_with_channel(x, [x.shape[0], x.shape[1], 64, 64, 64])
-		return self.conv3(self.conv2(x)).reshape(32, -1, 256, 256)
+		return self.conv3(self.conv2(x)).reshape(x.shape[0], -1, 256, 256)
 
 	def _get_name(self):
 		return "3D Conv Layers"
@@ -1337,11 +1339,10 @@ class PatchEmbedding(nn.Module):
 
 class PositionEmbedding(nn.Module):
 	def __init__(self,
-				 batch_size: int = 32,
 				 num_patches: int = 256,
 				 embedding_dimension: int = 2048):
 		super().__init__()
-		self.position_matrix = nn.Parameter(torch.randn(batch_size, num_patches,
+		self.position_matrix = nn.Parameter(torch.randn(1, num_patches,
 													   embedding_dimension),
 									   requires_grad = True)
 
