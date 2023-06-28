@@ -1181,6 +1181,32 @@ class Discriminator(nn.Module):
 		return x
 
 class Encoder(nn.Module):
+	"""
+		Input: [batch_size, channels, 157, 189, 156] recommended
+		Output: [batch_size, final_latent_space_dim]
+
+		User Guide:
+		* conv_in_features: the channels of the inputs
+		* conv_out_features: the channels after consecutive 3D CNNs
+		* kernel_size: the kernel size of 3D CNNs and Transpose 3D CNNs
+		* padding: whether we need to pad the dimensions
+		* batch_norm: whether we need to normalization
+		* img_size: the flattened image size before the whole vit block
+		* in_channels: the channels go into the patch embedding
+		* patch_size: the patch size of the vit block
+		num_transformer_layer: the number of transformer layers in the vit block
+		* embedding_dim: the embedding dimensions of the vit block
+		mlp_size: the size of the multi-layer perception block
+		num_heads: the attention heads in the multi-head self-attention(MSA) layer
+		attention_dropout: the percentage of drop-out in the multi-head self-attention(MSA) layer
+		mlp_dropout: the percentage of drop-out in the multi-layer perception layer
+		embedding_dropout: the percentage of drop-out after position embedding (before vit encoder)
+		final_latent_space_dim: the final latent space dimension that the user want
+								e.g. [1, final_latent_space_dim]
+
+		Note: We recommend using the default value in the arguments starting with *.
+			  Some unknown errors will occur if the arguments starting with * are changed.
+	"""
 	def __init__(self,
 				 conv_in_features: int = 1,
 				 conv_out_features: int = 128,
@@ -1306,32 +1332,6 @@ class AutoEncoder(nn.Module):
 
 
 class ViTEncoder(nn.Module):
-	"""
-		Input: [batch_size, channels, 157, 189, 156] recommended
-		Output: [batch_size, final_latent_space_dim]
-
-		User Guide:
-		* conv_in_features: the channels of the inputs
-		* conv_out_features: the channels after consecutive 3D CNNs
-		* kernel_size: the kernel size of 3D CNNs and Transpose 3D CNNs
-		* padding: whether we need to pad the dimensions
-		* batch_norm: whether we need to normalization
-		* img_size: the flattened image size before the whole vit block
-		* in_channels: the channels go into the patch embedding
-		* patch_size: the patch size of the vit block
-		num_transformer_layer: the number of transformer layers in the vit block
-		* embedding_dim: the embedding dimensions of the vit block
-		mlp_size: the size of the multi-layer perception block
-		num_heads: the attention heads in the multi-head self-attention(MSA) layer
-		attention_dropout: the percentage of drop-out in the multi-head self-attention(MSA) layer
-		mlp_dropout: the percentage of drop-out in the multi-layer perception layer
-		embedding_dropout: the percentage of drop-out after position embedding (before vit encoder)
-		final_latent_space_dim: the final latent space dimension that the user want
-								e.g. [1, final_latent_space_dim]
-
-		Note: We recommend using the default value in the arguments starting with *.
-			  Some unknown errors will occur if the arguments starting with * are changed.
-		"""
 	def __init__(self,
 				 img_size: int = 256,
 				 in_channels: int = 8,
