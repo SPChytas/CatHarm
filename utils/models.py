@@ -1190,7 +1190,7 @@ class Encoder(nn.Module):
 				 img_size: int = 256,
 				 in_channels: int = 8,
 				 patch_size: int = 16,
-				 num_transformer_layer: int = 6,
+				 num_transformer_layer: int = 2,
 				 embedding_dim: int = 2048,
 				 mlp_size: int = 4096,
 				 num_heads: int = 16,
@@ -1200,7 +1200,7 @@ class Encoder(nn.Module):
 				 final_latent_space_dim: int = 2048):
 		super().__init__()
 		self.num_patches = (img_size * img_size) // (patch_size ** 2)
-		self.conv_block = Consecutive3DConvLayerBlock(in_channel = conv_in_features,
+		self.conv_block= Consecutive3DConvLayerBlock(in_channel = conv_in_features,
 													  out_channel = conv_out_features,
 													  kernel_size = kernel_size,
 													  padding = padding,
@@ -1217,14 +1217,126 @@ class Encoder(nn.Module):
 									embedding_dropout = embedding_dropout,
 									final_latent_space_dim = final_latent_space_dim)
 	def forward(self, x):
-		return self.vit_block(self.conv_block(x))
+		x, cache = self.conv_block(x)
+		x, _ = self.vit_block(x)
+		return x
+
+class AutoEncoder(nn.Module):
+	"""
+	Input: [batch_size, channels, 157, 189, 156] recommended
+	Output: [batch_size, channels, 157, 189, 256] recommended
+
+	User Guide:
+	* conv_in_features: the channels of the inputs
+	* conv_out_features: the channels after consecutive 3D CNNs
+	* kernel_size: the kernel size of 3D CNNs and Transpose 3D CNNs
+	* padding: whether we need to pad the dimensions
+	* batch_norm: whether we need to normalization
+	* img_size: the flattened image size before the whole vit block
+	* in_channels: the channels go into the patch embedding
+	* patch_size: the patch size of the vit block
+	num_transformer_layer: the number of transformer layers in the vit block
+	* embedding_dim: the embedding dimensions of the vit block
+	mlp_size: the size of the multi-layer perception block
+	num_heads: the attention heads in the multi-head self-attention(MSA) layer
+	attention_dropout: the percentage of drop-out in the multi-head self-attention(MSA) layer
+	mlp_dropout: the percentage of drop-out in the multi-layer perception layer
+	embedding_dropout: the percentage of drop-out after position embedding (before vit encoder)
+	final_latent_space_dim: the final latent space dimension that the user want
+							e.g. [1, final_latent_space_dim]
+
+	Note: We recommend using the default value in the arguments starting with *.
+		  Some unknown errors will occur if the arguments starting with * are changed.
+	"""
+	def __init__(self,
+				 conv_in_features: int = 1,
+				 conv_out_features: int = 128,
+				 kernel_size: int = 3,
+				 padding: bool = True,
+				 batch_norm: bool = True,
+				 img_size: int = 256,
+				 in_channels: int = 8,
+				 patch_size: int = 16,
+				 num_transformer_layer: int = 2,
+				 embedding_dim: int = 2048,
+				 mlp_size: int = 4096,
+				 num_heads: int = 16,
+				 attention_dropout: float = .0,
+				 mlp_dropout: float = .1,
+				 embedding_dropout: float = .1,
+				 final_latent_space_dim: int = 2048):
+		super().__init__()
+		self.conv_block = Consecutive3DConvLayerBlock(in_channel = conv_in_features,
+													  out_channel = conv_out_features,
+													  kernel_size = kernel_size,
+													  padding = padding,
+													  batch_norm = batch_norm)
+		self.vit_block = ViTEncoder(img_size = img_size,
+									in_channels = in_channels,
+									patch_size = patch_size,
+									num_transformer_layer = num_transformer_layer,
+									embedding_dim = embedding_dim,
+									mlp_size = mlp_size,
+									num_heads = num_heads,
+									attention_dropout = attention_dropout,
+									mlp_dropout = mlp_dropout,
+									embedding_dropout = embedding_dropout,
+									final_latent_space_dim = final_latent_space_dim)
+		self.initial_residual = InitialResidualNet(final_latent_space_dim = final_latent_space_dim,
+												   patch_size = patch_size,
+												   embedding_dim = embedding_dim,
+												   img_size = img_size,
+												   in_channels = in_channels)
+
+		self.consecutive_transpose_convnets = DecodeConsecutiveConvNets(in_channel =
+																		conv_in_features,
+																		out_channel =
+																		conv_out_features,
+																		kernel_size = kernel_size,
+																		padding = True)
+
+	def forward(self, x):
+		x, cache = self.conv_block(x)
+		x, patch_embedded = self.vit_block(x)
+		x = self.initial_residual(x, patch_embedded)
+		x = self.consecutive_transpose_convnets(x, cache)
+
+		return x
+
+
 
 class ViTEncoder(nn.Module):
+	"""
+		Input: [batch_size, channels, 157, 189, 156] recommended
+		Output: [batch_size, final_latent_space_dim]
+
+		User Guide:
+		* conv_in_features: the channels of the inputs
+		* conv_out_features: the channels after consecutive 3D CNNs
+		* kernel_size: the kernel size of 3D CNNs and Transpose 3D CNNs
+		* padding: whether we need to pad the dimensions
+		* batch_norm: whether we need to normalization
+		* img_size: the flattened image size before the whole vit block
+		* in_channels: the channels go into the patch embedding
+		* patch_size: the patch size of the vit block
+		num_transformer_layer: the number of transformer layers in the vit block
+		* embedding_dim: the embedding dimensions of the vit block
+		mlp_size: the size of the multi-layer perception block
+		num_heads: the attention heads in the multi-head self-attention(MSA) layer
+		attention_dropout: the percentage of drop-out in the multi-head self-attention(MSA) layer
+		mlp_dropout: the percentage of drop-out in the multi-layer perception layer
+		embedding_dropout: the percentage of drop-out after position embedding (before vit encoder)
+		final_latent_space_dim: the final latent space dimension that the user want
+								e.g. [1, final_latent_space_dim]
+
+		Note: We recommend using the default value in the arguments starting with *.
+			  Some unknown errors will occur if the arguments starting with * are changed.
+		"""
 	def __init__(self,
 				 img_size: int = 256,
 				 in_channels: int = 8,
 				 patch_size: int = 16,
-				 num_transformer_layer: int = 6,
+				 num_transformer_layer: int = 2,
 				 embedding_dim: int = 2048,
 				 mlp_size: int = 4096,
 				 num_heads: int = 16,
@@ -1265,12 +1377,12 @@ class ViTEncoder(nn.Module):
 										  nn.Dropout(mlp_dropout))
 
 	def forward(self, x):
-		x = self.patch_embedding(x)
-		x = self.position_embedding(x)
+		patch_embeded = self.patch_embedding(x)
+		x = self.position_embedding(patch_embeded)
 		x = self.embedding_dropout(x)
 		x = self.transformer_encoder(x)
 		x = self.latent_space(x)
-		return x
+		return x, patch_embeded
 
 	def _get_name(self):
 		return "Vision Transformer Encoder"
@@ -1296,17 +1408,29 @@ class Consecutive3DConvLayerBlock(nn.Module):
 											  self.kernel_size),
 							  stride = self.kernel_size)
 
-		self.conv2 = nn.Conv3d(32, 64, (3, 3, 3), padding = 1, stride = 2)
-		self.conv3 = nn.Conv3d(64, self.out_channel, (3, 3, 3), padding = 1, stride = 2)
+		self.conv2 = nn.Conv3d(32, 64, (kernel_size, kernel_size, kernel_size), padding = 1, stride = 2)
+		self.conv3 = nn.Conv3d(64, self.out_channel, (kernel_size, kernel_size, kernel_size), padding = 1,
+							   stride = 2)
 
 	def forward(self, x):
+		cache = {}
 		self.batch_size, self.channels = x.shape[0], x.shape[1]
+		cache["original_data"] = x
 		if self.padding:
 			x = _pad_3D_image_patches_with_channel(x, [x.shape[0], x.shape[1], 158, 189, 156])
+			cache["first_padding"] = x
 		x = self.conv1(x)
+		cache["conv1"] = x
 		if self.padding:
 			x = _pad_3D_image_patches_with_channel(x, [x.shape[0], x.shape[1], 64, 64, 64])
-		return self.conv3(self.conv2(x)).reshape(x.shape[0], -1, 256, 256)
+			cache["second_padding"] = x
+		x = self.conv2(x)
+		cache["conv2"] = x
+
+		x = self.conv3(x)
+		cache["conv3"] = x
+
+		return x.reshape(x.shape[0], -1, 256, 256), cache
 
 	def _get_name(self):
 		return "3D Conv Layers"
@@ -1435,7 +1559,99 @@ def _pad_3D_image_patches_with_channel(img, desired_size):
 
 	return padded
 
+class InitialResidualNet(nn.Module):
+	def __init__(self,
+				 final_latent_space_dim: int = 2048,
+				 patch_size: int = 16,
+				 embedding_dim: int = 2048,
+				 img_size: int = 256,
+				 in_channels: int = 8):
+		super().__init__()
+		self.num_patches = (img_size * img_size) // (patch_size ** 2)
+		self.patch_size = patch_size
+		self.upsampling_fc_layer = nn.Linear(in_features = final_latent_space_dim,
+											 out_features = embedding_dim * self.num_patches)
+		self.unflatten = nn.Unflatten(dim = 2, unflattened_size = (16, 16))
+		self.unpatch_embeded = nn.ConvTranspose2d(in_channels = embedding_dim,
+												  out_channels = in_channels,
+												  kernel_size = 16,
+												  stride = 16,
+												  padding = 0)
 
 
+	def forward(self, latent_space_vec, patch_embedded_matrix):
+		output = self.upsampling_fc_layer(latent_space_vec).reshape(latent_space_vec.shape[0],
+																	self.num_patches, -1)
+
+		assert output.shape == patch_embedded_matrix.shape, f"Latent Space Vec Shape: " \
+															f"{output.shape}," \
+															f"Patch Embedded Matrix Shape " \
+															f"{patch_embedded_matrix.shape}. They must be equal to each other."
+
+		output += patch_embedded_matrix
+
+		output = self.unflatten(output.permute(0, 2, 1))
+
+		output = self.unpatch_embeded(output).reshape(output.shape[0], -1, self.patch_size,
+													  self.patch_size, self.patch_size)
+
+		return output
 
 
+class DecodeConsecutiveConvNets(nn.Module):
+	def __init__(self,
+				 in_channel: int = 1,
+				 out_channel: int = 128,
+				 kernel_size: int = 3,
+				 padding: bool = True):
+		super().__init__()
+		self.padding = padding
+		self.unconv_from_conv3 = nn.ConvTranspose3d(in_channels = out_channel,
+													out_channels = 64,
+													kernel_size = 3,
+													padding = 1,
+													stride = 2,
+													output_padding = 1
+													)
+		self.unconv_from_conv2 = nn.ConvTranspose3d(in_channels = 64,
+													out_channels = 32,
+													kernel_size = kernel_size,
+													padding = 1,
+													stride = 2,
+													output_padding = 1)
+		self.unconv_from_conv1 = nn.ConvTranspose3d(in_channels = 32,
+													out_channels = in_channel,
+													kernel_size = kernel_size,
+													padding = 0,
+													stride = kernel_size,
+													dilation = (2, 1, 1)
+													)
+
+
+	def forward(self, x, cache_from_convnets):
+		x += cache_from_convnets["conv3"]
+		x = self.unconv_from_conv3(x) + cache_from_convnets["conv2"]
+		x = self.unconv_from_conv2(x) + cache_from_convnets["second_padding"]
+		if self.padding:
+			x = _unpad_3D_image_patches_with_channel(x, (52, 63, 52)) + cache_from_convnets["conv1"]
+		x = self.unconv_from_conv1(x) + cache_from_convnets["first_padding"]
+		if self.padding:
+			x = _unpad_3D_image_patches_with_channel(x, (157, 189, 156)) + cache_from_convnets[
+			"original_data"]
+
+		return x
+
+
+def _unpad_3D_image_patches_with_channel(padded_img, original_size):
+    # original_size should be a tuple: (original_dim1, original_dim2, original_dim3)
+    slices = ()
+    for dim_idx in range(-3, 0):  # -3, -2, -1 correspond to dim1, dim2, dim3
+        diff = padded_img.size(dim_idx) - original_size[
+            dim_idx + 3]  # calculate the difference in each dimension
+        padding_before = diff // 2  # calculate padding before
+        padding_after = diff - padding_before  # calculate padding after
+        slices += slice(padding_before,
+                        padding_before + original_size[dim_idx + 3]),  # slice to remove padding
+
+    unpadded = padded_img[..., slices[0], slices[1], slices[2]]  # use ellipsis to keep the first two dimensions (batch and channel) unchanged
+    return unpadded

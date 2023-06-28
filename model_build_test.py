@@ -15,14 +15,17 @@ if __name__ == '__main__':
                     = 16, attention_dropout = .0, mlp_dropout = .1, embedding_dropout = .1,
                     final_latent_space_dim = 2048)
 
-    sys.stdout = open("model.txt", "w")
-    print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    summary(model, input_size = (1, 1, 157, 189, 156),
-            col_names = ["input_size", "output_size", "num_params", "trainable"],
-            col_width = 20,
-            row_settings = ["var_names"])
-    sys.stdout.close()
+    # sys.stdout = open("model.txt", "w")
+    # print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    # summary(model, input_size = (1, 1, 157, 189, 156),
+    #         col_names = ["input_size", "output_size", "num_params", "trainable"],
+    #         col_width = 20,
+    #         row_settings = ["var_names"])
+    # sys.stdout.close()
 
+    x = torch.randn((32, 1, 157, 189, 156))
+    x = model(x)
+    print(x.shape)
 
 
 
