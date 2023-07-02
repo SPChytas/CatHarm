@@ -144,7 +144,7 @@ test_dataloader = DataLoader(test_data,
                     ################# Peiran's Version #################
 model = Encoder(conv_in_features = 1, conv_out_features = 128, kernel_size = 3, padding = True,
 				batch_norm = True, img_size = 256, in_channels = 8, patch_size = 16, batch_size =
-				32, num_transformer_layer = 2, embedding_dim = 2048, mlp_size = 4096, num_heads
+				32, num_transformer_layer = 2, embedding_dim = 1024, mlp_size = 4096, num_heads
 				= 16, attention_dropout = .0, mlp_dropout = .1, embedding_dropout = .1,
 				final_latent_space_dim = 2048)
 

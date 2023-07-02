@@ -3,6 +3,7 @@ from torch import nn
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 # from unet_parts import *
 
@@ -1186,8 +1187,10 @@ class Encoder(nn.Module):
 		Output: [batch_size, final_latent_space_dim]
 
 		User Guide:
-		* conv_in_features: the channels of the inputs
-		* conv_out_features: the channels after consecutive 3D CNNs
+		* conv_in_channels: the channels of the inputs
+		conv_out_channels: the channels after consecutive 3D CNNs
+					   64, then the sequence length / number of patches will be 1024
+					   256, then the sequence length / number of patches will be 4096
 		* kernel_size: the kernel size of 3D CNNs and Transpose 3D CNNs
 		* padding: whether we need to pad the dimensions
 		* batch_norm: whether we need to normalization
@@ -1208,31 +1211,28 @@ class Encoder(nn.Module):
 			  Some unknown errors will occur if the arguments starting with * are changed.
 	"""
 	def __init__(self,
-				 conv_in_features: int = 1,
-				 conv_out_features: int = 128,
+				 conv_in_channels: int = 1,
+				 conv_out_channels: int = 64,
 				 kernel_size: int = 3,
 				 padding: bool = True,
 				 batch_norm: bool = True,
-				 img_size: int = 256,
-				 in_channels: int = 8,
 				 patch_size: int = 16,
 				 num_transformer_layer: int = 2,
-				 embedding_dim: int = 2048,
-				 mlp_size: int = 4096,
-				 num_heads: int = 16,
+				 embedding_dim: int = 256,
+				 mlp_size: int = 2048,
+				 num_heads: int = 8,
 				 attention_dropout: float = .0,
 				 mlp_dropout: float = .1,
 				 embedding_dropout: float = .1,
 				 final_latent_space_dim: int = 2048):
 		super().__init__()
-		self.num_patches = (img_size * img_size) // (patch_size ** 2)
-		self.conv_block= Consecutive3DConvLayerBlock(in_channel = conv_in_features,
-													  out_channel = conv_out_features,
+		self.conv_block= Consecutive3DConvLayerBlock(in_channel = conv_in_channels,
+													  out_channel = conv_out_channels,
 													  kernel_size = kernel_size,
 													  padding = padding,
 													  batch_norm = batch_norm)
-		self.vit_block = ViTEncoder(img_size = img_size,
-									in_channels = in_channels,
+		self.vit_block = ViTEncoder(in_channels = conv_in_channels,
+									out_channels = conv_out_channels,
 									patch_size = patch_size,
 									num_transformer_layer = num_transformer_layer,
 									embedding_dim = embedding_dim,
@@ -1249,17 +1249,17 @@ class Encoder(nn.Module):
 
 class AutoEncoder(nn.Module):
 	"""
-	Input: [batch_size, channels, 157, 189, 156] recommended
-	Output: [batch_size, channels, 157, 189, 256] recommended
+	Input: [batch_size, channels, 157, 189, 156] (recommended)
+	Output: [batch_size, channels, 157, 189, 156] (recommended)
 
 	User Guide:
-	* conv_in_features: the channels of the inputs
-	* conv_out_features: the channels after consecutive 3D CNNs
+	* conv_in_channels: the channels of the inputs
+	conv_out_channels: the channels after consecutive 3D CNNs
+					   64, then the sequence length / number of patches will be 1024
+					   256, then the sequence length / number of patches will be 4096
 	* kernel_size: the kernel size of 3D CNNs and Transpose 3D CNNs
 	* padding: whether we need to pad the dimensions
 	* batch_norm: whether we need to normalization
-	* img_size: the flattened image size before the whole vit block
-	* in_channels: the channels go into the patch embedding
 	* patch_size: the patch size of the vit block
 	num_transformer_layer: the number of transformer layers in the vit block
 	* embedding_dim: the embedding dimensions of the vit block
@@ -1275,30 +1275,31 @@ class AutoEncoder(nn.Module):
 		  Some unknown errors will occur if the arguments starting with * are changed.
 	"""
 	def __init__(self,
-				 conv_in_features: int = 1,
-				 conv_out_features: int = 128,
+				 conv_in_channels: int = 1,
+				 conv_out_channels: int = 64,
 				 kernel_size: int = 3,
 				 padding: bool = True,
 				 batch_norm: bool = True,
-				 img_size: int = 256,
-				 in_channels: int = 8,
 				 patch_size: int = 16,
 				 num_transformer_layer: int = 2,
-				 embedding_dim: int = 2048,
-				 mlp_size: int = 4096,
-				 num_heads: int = 16,
+				 embedding_dim: int = 256,
+				 mlp_size: int = 2048,
+				 num_heads: int = 8,
 				 attention_dropout: float = .0,
 				 mlp_dropout: float = .1,
 				 embedding_dropout: float = .1,
 				 final_latent_space_dim: int = 2048):
 		super().__init__()
-		self.conv_block = Consecutive3DConvLayerBlock(in_channel = conv_in_features,
-													  out_channel = conv_out_features,
+
+		assert conv_out_channels == 64 or conv_out_channels == 256, "Unsupportable Channels"
+
+		self.conv_block = Consecutive3DConvLayerBlock(in_channel = conv_in_channels,
+													  out_channel = conv_out_channels,
 													  kernel_size = kernel_size,
 													  padding = padding,
 													  batch_norm = batch_norm)
-		self.vit_block = ViTEncoder(img_size = img_size,
-									in_channels = in_channels,
+		self.vit_block = ViTEncoder(in_channels = conv_in_channels,
+								    out_channels = conv_out_channels,
 									patch_size = patch_size,
 									num_transformer_layer = num_transformer_layer,
 									embedding_dim = embedding_dim,
@@ -1311,13 +1312,13 @@ class AutoEncoder(nn.Module):
 		self.initial_residual = InitialResidualNet(final_latent_space_dim = final_latent_space_dim,
 												   patch_size = patch_size,
 												   embedding_dim = embedding_dim,
-												   img_size = img_size,
-												   in_channels = in_channels)
+												   in_channels = conv_in_channels,
+												   out_channels = conv_out_channels)
 
 		self.consecutive_transpose_convnets = DecodeConsecutiveConvNets(in_channel =
-																		conv_in_features,
+																		conv_in_channels,
 																		out_channel =
-																		conv_out_features,
+																		conv_out_channels,
 																		kernel_size = kernel_size,
 																		padding = True)
 
@@ -1333,12 +1334,12 @@ class AutoEncoder(nn.Module):
 
 class ViTEncoder(nn.Module):
 	def __init__(self,
-				 img_size: int = 256,
-				 in_channels: int = 8,
+				 in_channels: int = 1,
+				 out_channels: int = 64,
 				 patch_size: int = 16,
 				 num_transformer_layer: int = 2,
-				 embedding_dim: int = 2048,
-				 mlp_size: int = 4096,
+				 embedding_dim: int = 256,
+				 mlp_size: int = 2048,
 				 num_heads: int = 16,
 				 attention_dropout: float = .0,
 				 mlp_dropout: float = .1,
@@ -1346,12 +1347,10 @@ class ViTEncoder(nn.Module):
 				 final_latent_space_dim: int = 2048):
 		super().__init__()
 
-		assert img_size % patch_size == 0, f"Input Size: {img_size} must be divisible by Patch " \
-										   f"Size: {patch_size}"
+		self.num_patches = out_channels * patch_size ** 3 // patch_size ** 2
 
-		self.num_patches = (img_size * img_size) // (patch_size ** 2)
-
-		self.position_embedding = PositionEmbedding(num_patches = self.num_patches,
+		self.position_embedding = PositionEmbedding(out_channel = out_channels,
+													patch_size = patch_size,
 													embedding_dimension = embedding_dim)
 
 		self.embedding_dropout = nn.Dropout(p = embedding_dropout)
@@ -1369,12 +1368,12 @@ class ViTEncoder(nn.Module):
 																	  attention_dropout) for _
 												 in range(num_transformer_layer)])
 
-		self.latent_space = nn.Sequential(nn.Flatten(),
-										  nn.LayerNorm(normalized_shape = embedding_dim *
-																		  self.num_patches),
+		self.latent_space = nn.Sequential(
+										  nn.LayerNorm(normalized_shape = embedding_dim),
+										  nn.Flatten(),
 										  nn.Linear(in_features = embedding_dim * self.num_patches,
 													out_features = final_latent_space_dim),
-										  nn.Dropout(mlp_dropout))
+										  nn.Dropout(p = mlp_dropout))
 
 	def forward(self, x):
 		patch_embeded = self.patch_embedding(x)
@@ -1388,29 +1387,31 @@ class ViTEncoder(nn.Module):
 		return "Vision Transformer Encoder"
 
 class Consecutive3DConvLayerBlock(nn.Module):
+	# Warning: if out_channel = 64, then sequence length will be 1024;
+	#          if out_channel = 256, then sequence length will be 4096;
 	def __init__(self,
 				 in_channel: int = 1,
-				 out_channel: int = 128,
+				 out_channel: int = 64,
 				 kernel_size: int = 3,
+				 patch_size: int = 16,
 				 padding: bool = True,
 				 batch_norm: bool = True) -> None:
 		super().__init__()
-		self.in_channel = in_channel
 		self.out_channel = out_channel
-		self.kernel_size = kernel_size
 		self.padding = padding
 		self.batch_norm = batch_norm
+		self.patch_size = patch_size
 
-
-		self.conv1 = nn.Conv3d(in_channels=self.in_channel,
+		self.conv1 = nn.Conv3d(in_channels= in_channel,
 							   out_channels = 32,
-							   kernel_size = (self.kernel_size, self.kernel_size,
-											  self.kernel_size),
-							  stride = self.kernel_size)
+							   kernel_size = kernel_size,
+							  stride = kernel_size)
 
 		self.conv2 = nn.Conv3d(32, 64, (kernel_size, kernel_size, kernel_size), padding = 1, stride = 2)
 		self.conv3 = nn.Conv3d(64, self.out_channel, (kernel_size, kernel_size, kernel_size), padding = 1,
 							   stride = 2)
+		if batch_norm:
+			self.batch_norm_layer = nn.BatchNorm3d(out_channel)
 
 	def forward(self, x):
 		cache = {}
@@ -1430,16 +1431,21 @@ class Consecutive3DConvLayerBlock(nn.Module):
 		x = self.conv3(x)
 		cache["conv3"] = x
 
-		return x.reshape(x.shape[0], -1, 256, 256), cache
+		if self.batch_norm:
+			x = self.batch_norm_layer(x)
+
+		out_shape = int(math.sqrt(self.out_channel * self.patch_size ** 3))
+
+		return x.reshape(x.shape[0], 1, out_shape, -1), cache
 
 	def _get_name(self):
 		return "3D Conv Layers"
 
 class PatchEmbedding(nn.Module):
 	def __init__(self,
-				 in_channels: int = 8,
+				 in_channels: int = 1,
 				 patch_size: int = 16,
-				 embedding_dim: int = 2048):
+				 embedding_dim: int = 256):
 		super().__init__()
 		self.patcher = nn.Conv2d(in_channels = in_channels,
 								 out_channels = embedding_dim,
@@ -1463,20 +1469,21 @@ class PatchEmbedding(nn.Module):
 
 class PositionEmbedding(nn.Module):
 	def __init__(self,
-				 num_patches: int = 256,
-				 embedding_dimension: int = 2048):
+				 out_channel: int = 64,
+				 patch_size: int = 16,
+				 embedding_dimension: int = 256):
 		super().__init__()
+		num_patches = out_channel * patch_size ** 3 // patch_size ** 2
 		self.position_matrix = nn.Parameter(torch.randn(1, num_patches,
-													   embedding_dimension),
-									   requires_grad = True)
+													   embedding_dimension), requires_grad = True)
 
 	def forward(self, x):
 		return x + self.position_matrix
 
 class MultiheadSelfAttention(nn.Module):
 	def __init__(self,
-				 embedding_dim: int = 2048,
-				 num_heads: int = 16,
+				 embedding_dim: int = 256,
+				 num_heads: int = 8,
 				 attention_dropout: float = .0):
 		super().__init__()
 		self.layer_norm = nn.LayerNorm(normalized_shape = embedding_dim)
@@ -1495,8 +1502,8 @@ class MultiheadSelfAttention(nn.Module):
 
 class MultiLayerPerception(nn.Module):
 	def __init__(self,
-				 embedding_dim: int = 2048,
-				 mlp_size: int = 4096,
+				 embedding_dim: int = 256,
+				 mlp_size: int = 2048,
 				 mlp_dropout: float = 0.1):
 		super().__init__()
 
@@ -1514,9 +1521,9 @@ class MultiLayerPerception(nn.Module):
 
 class TransformerEncoder(nn.Module):
 	def __init__(self,
-				 embedding_dim: int = 2048,
-				 num_heads: int = 16,
-				 mlp_size: int = 4096,
+				 embedding_dim: int = 256,
+				 num_heads: int = 8,
+				 mlp_size: int = 2048,
 				 mlp_dropout: float = .1,
 				 attention_dropout: float = .0):
 		super().__init__()
@@ -1553,8 +1560,6 @@ def _pad_3D_image_patches_with_channel(img, desired_size):
 			padding += (i // 2, i // 2 + 1)
 
 	padding += (0, 0, 0, 0)
-
-	print("Padding:", padding)
 	padded = F.pad(img, padding)
 
 	return padded
@@ -1563,32 +1568,32 @@ class InitialResidualNet(nn.Module):
 	def __init__(self,
 				 final_latent_space_dim: int = 2048,
 				 patch_size: int = 16,
-				 embedding_dim: int = 2048,
-				 img_size: int = 256,
-				 in_channels: int = 8):
+				 embedding_dim: int = 256,
+				 in_channels: int = 1,
+				 out_channels: int = 64):
 		super().__init__()
-		self.num_patches = (img_size * img_size) // (patch_size ** 2)
+		self.embedding_dim = embedding_dim
+		self.num_patches = out_channels * patch_size ** 3 // patch_size ** 2
+		sqrt_num_patches = int(math.sqrt(self.num_patches))
 		self.patch_size = patch_size
 		self.upsampling_fc_layer = nn.Linear(in_features = final_latent_space_dim,
 											 out_features = embedding_dim * self.num_patches)
-		self.unflatten = nn.Unflatten(dim = 2, unflattened_size = (16, 16))
+		self.unflatten = nn.Unflatten(dim = 2, unflattened_size = (sqrt_num_patches, sqrt_num_patches))
 		self.unpatch_embeded = nn.ConvTranspose2d(in_channels = embedding_dim,
 												  out_channels = in_channels,
-												  kernel_size = 16,
-												  stride = 16,
+												  kernel_size = patch_size,
+												  stride = patch_size,
 												  padding = 0)
 
 
-	def forward(self, latent_space_vec, patch_embedded_matrix):
+	def forward(self, latent_space_vec, patch_and_pos_embedded):
 		output = self.upsampling_fc_layer(latent_space_vec).reshape(latent_space_vec.shape[0],
-																	self.num_patches, -1)
+																	self.num_patches,
+																	self.embedding_dim)
+		assert output.shape == patch_and_pos_embedded.shape, \
+			f"[ERROR] Dimensions Mismatch: {output.shape} != {patch_and_pos_embedded}"
 
-		assert output.shape == patch_embedded_matrix.shape, f"Latent Space Vec Shape: " \
-															f"{output.shape}," \
-															f"Patch Embedded Matrix Shape " \
-															f"{patch_embedded_matrix.shape}. They must be equal to each other."
-
-		output += patch_embedded_matrix
+		output += patch_and_pos_embedded
 
 		output = self.unflatten(output.permute(0, 2, 1))
 
@@ -1601,7 +1606,7 @@ class InitialResidualNet(nn.Module):
 class DecodeConsecutiveConvNets(nn.Module):
 	def __init__(self,
 				 in_channel: int = 1,
-				 out_channel: int = 128,
+				 out_channel: int = 64,
 				 kernel_size: int = 3,
 				 padding: bool = True):
 		super().__init__()

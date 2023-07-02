@@ -1,0 +1,8 @@
+AutoEncoder: v 1.0.2 
+Test beginning: 2023-07-01 19:59:14
+Input shape: torch.Size([2, 1, 157, 189, 156]) ([batch_size, channels, depth, height, width])
+Output shape: torch.Size([2, 1, 157, 189, 156]) ([batch_size, channels, depth, height, width])
+Dimensions Match?  True
+Test ending: 2023-07-01 19:59:19
+Writing AutoEncoder Info to model_config.txt
+Writing Success!
