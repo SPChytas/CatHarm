@@ -161,7 +161,7 @@ def _predict_invariant_variable_image(train_dataloader, val_dataloader, classifi
 
 		print('RAM Used (GB):', psutil.virtual_memory()[3]/1024**3)
 
-
+		
 		for X, y in tqdm(train_dataloader, total=len(train_dataloader)):
 
 			# print (X.shape, y.shape)

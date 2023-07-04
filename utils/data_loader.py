@@ -45,13 +45,15 @@ class image_dataset(Dataset):
 
 		self.files_path = files_path
 		self.metadata = metadata
-
+		
 		self.images = []
 		self.preload = preload
 
 		if (self.preload):
+			
 			for i in tqdm(range(len(self.files_path)), desc='Preloading...'):
-				image = nib.load(self.files_path[index]).get_fdata()
+				
+				image = nib.load(self.files_path[i]).get_fdata()
 				image[np.isnan(image)] = np.mean(image[~np.isnan(image)])
 				image /= max(np.max(image), -np.min(image))
 
@@ -72,7 +74,8 @@ class image_dataset(Dataset):
 			image[np.isnan(image)] = np.mean(image[~np.isnan(image)])
 			image /= max(np.max(image), -np.min(image))
 
-		return torch.unsqueeze(torch.FloatTensor(image), 0), torch.FloatTensor(self.metadata[index])
+
+		return torch.unsqueeze(torch.FloatTensor(image), 0), torch.FloatTensor([self.metadata[index]])
 
 
 

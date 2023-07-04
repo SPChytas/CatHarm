@@ -42,7 +42,7 @@ class MLP_encdec(nn.Module):
 
 
 class MLP(nn.Module):
-	def __init__(self, in_depth, hidden_depths, out_depth, batchnorm=True, dropout=0., binary=True):
+	def __init__(self, in_depth, hidden_depths, out_depth, batchnorm=True, dropout=0., classification=True):
 		super(MLP, self).__init__()
 		self.batchnorm = batchnorm
 		self.dropout = dropout
@@ -52,7 +52,16 @@ class MLP(nn.Module):
 		self.norm = nn.ModuleList([])
 		self.act = nn.ModuleList([])
 
-		self.binary = binary
+		self.classification = classification
+
+
+		if (self.classification):
+			if (out_depth == 1):
+				self.final_activation = nn.Sigmoid()
+			else:
+				self.final_activation = nn.Softmax(1)
+		else:
+			self.final_activation = nn.Identity()
 
 		for i in range(len(self.depths) - 1):
 			self.linear_layers.append(nn.Linear(self.depths[i], self.depths[i + 1], bias=not batchnorm))
@@ -74,11 +83,7 @@ class MLP(nn.Module):
 			#	latent = x
 		#return x, latent
 
-		if (self.binary):
-			x = torch.sigmoid(x)
-		else:
-			x = x
-			# x = torch.softmax(x, dim=1)
+		x = self.final_activation(x)
 
 		return x
 		
@@ -128,6 +133,95 @@ class Encoder(nn.Module):
 									final_latent_space_dim = final_latent_space_dim)
 	def forward(self, x):
 		return self.vit_block(self.conv_block(x))
+
+
+class AutoEncoder(nn.Module):
+	"""
+	Input: [batch_size, channels, 157, 189, 156] (recommended)
+	Output: [batch_size, channels, 157, 189, 156] (recommended)
+
+	User Guide:
+	* conv_in_channels: the channels of the inputs
+	conv_out_channels: the channels after consecutive 3D CNNs
+					   64, then the sequence length / number of patches will be 1024
+					   256, then the sequence length / number of patches will be 4096
+	* kernel_size: the kernel size of 3D CNNs and Transpose 3D CNNs
+	* padding: whether we need to pad the dimensions
+	* batch_norm: whether we need to normalization
+	* patch_size: the patch size of the vit block
+	num_transformer_layer: the number of transformer layers in the vit block
+	* embedding_dim: the embedding dimensions of the vit block
+	mlp_size: the size of the multi-layer perception block
+	num_heads: the attention heads in the multi-head self-attention(MSA) layer
+	attention_dropout: the percentage of drop-out in the multi-head self-attention(MSA) layer
+	mlp_dropout: the percentage of drop-out in the multi-layer perception layer
+	embedding_dropout: the percentage of drop-out after position embedding (before vit encoder)
+	final_latent_space_dim: the final latent space dimension that the user want
+							e.g. [1, final_latent_space_dim]
+
+	Note: We recommend using the default value in the arguments starting with *.
+		  Some unknown errors will occur if the arguments starting with * are changed.
+	"""
+	def __init__(self,
+				 conv_in_channels: int = 1,
+				 conv_out_channels: int = 64,
+				 kernel_size: int = 3,
+				 padding: bool = True,
+				 batch_norm: bool = True,
+				 patch_size: int = 16,
+				 num_transformer_layer: int = 2,
+				 embedding_dim: int = 256,
+				 mlp_size: int = 2048,
+				 num_heads: int = 8,
+				 attention_dropout: float = .0,
+				 mlp_dropout: float = .1,
+				 embedding_dropout: float = .1,
+				 final_latent_space_dim: int = 2048):
+		super().__init__()
+
+		assert conv_out_channels == 64 or conv_out_channels == 256, "Unsupportable Channels"
+
+		self.conv_block = Consecutive3DConvLayerBlock(in_channel = conv_in_channels,
+													  out_channel = conv_out_channels,
+													  kernel_size = kernel_size,
+													  padding = padding,
+													  batch_norm = batch_norm)
+		self.vit_block = ViTEncoder(in_channels = conv_in_channels,
+								    out_channels = conv_out_channels,
+									patch_size = patch_size,
+									num_transformer_layer = num_transformer_layer,
+									embedding_dim = embedding_dim,
+									mlp_size = mlp_size,
+									num_heads = num_heads,
+									attention_dropout = attention_dropout,
+									mlp_dropout = mlp_dropout,
+									embedding_dropout = embedding_dropout,
+									final_latent_space_dim = final_latent_space_dim)
+		self.initial_residual = InitialResidualNet(final_latent_space_dim = final_latent_space_dim,
+												   patch_size = patch_size,
+												   embedding_dim = embedding_dim,
+												   in_channels = conv_in_channels,
+												   out_channels = conv_out_channels)
+
+		self.consecutive_transpose_convnets = DecodeConsecutiveConvNets(in_channel =
+																		conv_in_channels,
+																		out_channel =
+																		conv_out_channels,
+																		kernel_size = kernel_size,
+																		padding = True)
+
+	def forward(self, x):
+		x, cache = self.conv_block(x)
+		x, patch_embedded = self.vit_block(x)
+		x = self.initial_residual(x, patch_embedded)
+		x = self.consecutive_transpose_convnets(x, cache)
+
+		return x
+
+
+
+
+
 
 class ViTEncoder(nn.Module):
 	def __init__(self,
