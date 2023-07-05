@@ -434,7 +434,7 @@ def _pad_3D_image_patches_with_channel(img, desired_size):
 
 	padding += (0, 0, 0, 0)
 
-	print("Padding:", padding)
+	# print("Padding:", padding)
 	padded = F.pad(img, padding)
 
 	return padded

@@ -188,7 +188,7 @@ def _predict_invariant_variable_image(train_dataloader, val_dataloader, classifi
 			latent = encoder(X.to(device))
 			y_out = pred_head(latent)
 
-			batch_metric.append(metric(y_out, y.to(device)))
+			batch_metric.append(metric(y_out, y.to(device)).cpu().detach().numpy())
 
 			del X, y, y_out, latent
 
