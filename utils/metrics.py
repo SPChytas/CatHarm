@@ -111,15 +111,15 @@ def _predict_invariant_variable_image(train_dataloader, val_dataloader, classifi
 	torch.manual_seed(seed)
 	np.random.seed(seed)
 
-	# device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-	device = torch.device("cpu")
+	device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+	# device = torch.device("cpu")
 	print(f'Selected device: {device}')
 
 
 	latent_dim = 2048
 	epochs = 100 
 
-	encoder = Encoder(final_latent_space_dim=latent_dim, num_heads=8).to(device)
+	encoder = Encoder(final_latent_space_dim=latent_dim, num_heads=8, embedding_dim=256).to(device)
 	pred_head = MLP(latent_dim, [256], 1, classification=classification).to(device)
 
 
@@ -175,6 +175,8 @@ def _predict_invariant_variable_image(train_dataloader, val_dataloader, classifi
 			l.backward()
 			optimizer.step()
 
+
+			del X, y, y_out, latent, l
 			torch.cuda.empty_cache()
 
 
@@ -187,6 +189,8 @@ def _predict_invariant_variable_image(train_dataloader, val_dataloader, classifi
 			y_out = pred_head(latent)
 
 			batch_metric.append(metric(y_out, y.to(device)))
+
+			del X, y, y_out, latent
 
 		if (classification):
 			best_metric = max(best_metric, np.mean(batch_metric))
