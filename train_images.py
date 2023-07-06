@@ -20,7 +20,7 @@ import os
 import argparse
 
 from utils import metrics
-from utils.models import ResNet_encdec
+from utils.models import AutoEncoder
 from utils.data_loader import image_dataset
 
 import sys
@@ -30,11 +30,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--file', type=str, default='data/imaging_data/(256, 256, 156)')
 parser.add_argument('--output_file', type=str, default='experiments/imaging_data/(256, 256, 156)')
 
-parser.add_argument('--latent_dim', type=int, default=10)
+parser.add_argument('--latent_dim', type=int, default=2048)
 parser.add_argument('--epochs', type=int, default=100)
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--morph_loss_factor', type=float, default=1)
+parser.add_argument('--preload', action='store_true')
+
 
 parser.add_argument('--seed', type=int, default=42)
 
@@ -102,9 +104,9 @@ paths_train, paths_val, metadata_train, metadata_val = train_test_split(paths, n
 
 
 
-
-train_dataset = image_dataset(paths_train, metadata_train)
-val_dataset = image_dataset(paths_val, metadata_val)
+preload = args.preload
+train_dataset = image_dataset(paths_train, metadata_train, preload)
+val_dataset = image_dataset(paths_val, metadata_val, preload)
 
 params = {'batch_size': args.batch_size,
           'shuffle': True,
@@ -123,7 +125,7 @@ val_generator = DataLoader(val_dataset, **params)
 # ############################################ <Model> ############################################
 latent_dim = args.latent_dim
 
-model = ResNet_encdec(latent_dim=latent_dim).to(device)
+model = AutoEncoder(final_latent_space_dim=latent_dim).to(device)
 up_matrices = [Variable(torch.normal(mean=0, std=0.1, size=(latent_dim, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
 down_matrices = [Variable(torch.normal(mean=0, std=0.1, size=(latent_dim, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
 
@@ -168,7 +170,11 @@ for epoch in range(max_epochs):
 		X = batch[0].to(device)
 		mdata = batch[1]
 
-		X_out, _, latent = model(X)
+		print (X.shape)
+
+		X_out, latent = model(X)
+
+		print (X_out.shape, latent.shape)
 
 		recon_loss = loss_mse(X, X_out)
 

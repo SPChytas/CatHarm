@@ -89,13 +89,9 @@ with open(args.file + '/adversarial_evaluation.txt', 'w') as f:
 	sys.stdout = f
 
 
-	print ('########## <Pre-harmonization evaluation> ##########')
-
-	# for v in ['mri_coil_name', 'scanner_source']:
-	for v in ['scanner_source']:
-
+	for v in ['diagnosis', 'mri_coil_name', 'scanner_source']:
+	
 		v_index = columns.index(v)
-
 
 		preload = True
 		train_dataset = image_dataset(paths_train, metadata_train[:, v_index], preload)
@@ -115,29 +111,6 @@ with open(args.file + '/adversarial_evaluation.txt', 'w') as f:
 		print ('\t random guess is: %.2f' %(max(metadata[v].sum()/metadata.shape[0], 1- metadata[v].sum()/metadata.shape[0])))
 
 		
-
-
-	for v in ['diagnosis']:
-
-		v_index = columns.index(v)
-
-		train_dataset = image_dataset(paths_train, metadata_train[v_index])
-		val_dataset = image_dataset(paths_val, metadata_val[:, v_index])
-
-		params = {'batch_size': args.batch_size,
-				'shuffle': True,
-				'num_workers': 1}
-
-		train_generator = DataLoader(train_dataset, **params)
-		val_generator = DataLoader(val_dataset, **params)
-
-
-
-		print ('-'*20)
-		print (v + ': %.2f (+-%.2f)' %(metrics.predict_invariant_variable((train_generator, val_generator), image_data=True)))
-		print ('\t random guess is: %.2f' %(max(metadata[v].sum()/metadata.shape[0], 1- metadata[v].sum()/metadata.shape[0])))
-
 	print ('-'*20)
 
-	print ('########## </Pre-harmonization evaluation> ##########\n\n')
-
+	

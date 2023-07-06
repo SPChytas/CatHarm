@@ -136,14 +136,14 @@ def _predict_invariant_variable_image(train_dataloader, val_dataloader, classifi
 	    buffer_size += buffer.nelement() * buffer.element_size()
 
 	size_all_gb = (param_size + buffer_size) / 1024**3
-	print('model size: {:.3f}GB'.format(size_all_gb))
+	# print('model size: {:.3f}GB'.format(size_all_gb))
 
 
 	optimizer = optim.Adam([{'params': encoder.parameters()}] +
 						   [{'params': pred_head.parameters()}])
 
 	loss = nn.BCELoss() if classification else nn.MSELoss()
-	metric = torchmetrics.classification.BinaryAccuracy() if classification else nn.MSELoss()
+	metric = torchmetrics.classification.BinaryAccuracy().to(device) if classification else nn.MSELoss().to(device)
 
 	if (classification):
 		best_metric = 0 
@@ -151,20 +151,13 @@ def _predict_invariant_variable_image(train_dataloader, val_dataloader, classifi
 		best_metric = float('inf')
 
 
-	print('RAM Used (GB):', psutil.virtual_memory()[3]/1024**3)
-
 
 	for ep in tqdm(range(epochs)):
 
 		encoder.train()
 		pred_head.train()
 
-		print('RAM Used (GB):', psutil.virtual_memory()[3]/1024**3)
-
-		
 		for X, y in tqdm(train_dataloader, total=len(train_dataloader)):
-
-			# print (X.shape, y.shape)
 
 			latent = encoder(X.to(device))
 			y_out = pred_head(latent)

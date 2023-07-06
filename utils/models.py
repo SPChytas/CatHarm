@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import math
+
 # from unet_parts import *
 
 class MLP_encdec(nn.Module):
@@ -187,8 +189,7 @@ class AutoEncoder(nn.Module):
 													  padding = padding,
 													  batch_norm = batch_norm)
 		self.vit_block = ViTEncoder(in_channels = conv_in_channels,
-								    out_channels = conv_out_channels,
-									patch_size = patch_size,
+								    patch_size = patch_size,
 									num_transformer_layer = num_transformer_layer,
 									embedding_dim = embedding_dim,
 									mlp_size = mlp_size,
@@ -211,12 +212,14 @@ class AutoEncoder(nn.Module):
 																		padding = True)
 
 	def forward(self, x):
-		x, cache = self.conv_block(x)
-		x, patch_embedded = self.vit_block(x)
+		x, patch_embedded = self.vit_block(self.conv_block(x))
+
+		latent = x.clone()
+
 		x = self.initial_residual(x, patch_embedded)
 		x = self.consecutive_transpose_convnets(x, cache)
 
-		return x
+		return x, latent
 
 
 
@@ -443,3 +446,99 @@ def _pad_3D_image_patches_with_channel(img, desired_size):
 
 
 
+
+
+class InitialResidualNet(nn.Module):
+	def __init__(self,
+				 final_latent_space_dim: int = 2048,
+				 patch_size: int = 16,
+				 embedding_dim: int = 256,
+				 in_channels: int = 1,
+				 out_channels: int = 64):
+		super().__init__()
+		self.embedding_dim = embedding_dim
+		self.num_patches = out_channels * patch_size ** 3 // patch_size ** 2
+		sqrt_num_patches = int(math.sqrt(self.num_patches))
+		self.patch_size = patch_size
+		self.upsampling_fc_layer = nn.Linear(in_features = final_latent_space_dim,
+											 out_features = embedding_dim * self.num_patches)
+		self.unflatten = nn.Unflatten(dim = 2, unflattened_size = (sqrt_num_patches, sqrt_num_patches))
+		self.unpatch_embeded = nn.ConvTranspose2d(in_channels = embedding_dim,
+												  out_channels = in_channels,
+												  kernel_size = patch_size,
+												  stride = patch_size,
+												  padding = 0)
+
+
+	def forward(self, latent_space_vec, patch_and_pos_embedded):
+		output = self.upsampling_fc_layer(latent_space_vec).reshape(latent_space_vec.shape[0],
+																	self.num_patches,
+																	self.embedding_dim)
+		assert output.shape == patch_and_pos_embedded.shape, \
+			f"[ERROR] Dimensions Mismatch: {output.shape} != {patch_and_pos_embedded}"
+
+		output += patch_and_pos_embedded
+
+		output = self.unflatten(output.permute(0, 2, 1))
+
+		output = self.unpatch_embeded(output).reshape(output.shape[0], -1, self.patch_size,
+													  self.patch_size, self.patch_size)
+
+		return output
+
+class DecodeConsecutiveConvNets(nn.Module):
+	def __init__(self,
+				 in_channel: int = 1,
+				 out_channel: int = 64,
+				 kernel_size: int = 3,
+				 padding: bool = True):
+		super().__init__()
+		self.padding = padding
+		self.unconv_from_conv3 = nn.ConvTranspose3d(in_channels = out_channel,
+													out_channels = 64,
+													kernel_size = 3,
+													padding = 1,
+													stride = 2,
+													output_padding = 1
+													)
+		self.unconv_from_conv2 = nn.ConvTranspose3d(in_channels = 64,
+													out_channels = 32,
+													kernel_size = kernel_size,
+													padding = 1,
+													stride = 2,
+													output_padding = 1)
+		self.unconv_from_conv1 = nn.ConvTranspose3d(in_channels = 32,
+													out_channels = in_channel,
+													kernel_size = kernel_size,
+													padding = 0,
+													stride = kernel_size,
+													dilation = (2, 1, 1)
+													)
+
+
+	def forward(self, x, cache_from_convnets):
+		x += cache_from_convnets["conv3"]
+		x = self.unconv_from_conv3(x) + cache_from_convnets["conv2"]
+		x = self.unconv_from_conv2(x) + cache_from_convnets["second_padding"]
+		if self.padding:
+			x = _unpad_3D_image_patches_with_channel(x, (52, 63, 52)) + cache_from_convnets["conv1"]
+		x = self.unconv_from_conv1(x) + cache_from_convnets["first_padding"]
+		if self.padding:
+			x = _unpad_3D_image_patches_with_channel(x, (157, 189, 156)) + cache_from_convnets[
+			"original_data"]
+
+		return x
+
+def _unpad_3D_image_patches_with_channel(padded_img, original_size):
+    # original_size should be a tuple: (original_dim1, original_dim2, original_dim3)
+    slices = ()
+    for dim_idx in range(-3, 0):  # -3, -2, -1 correspond to dim1, dim2, dim3
+        diff = padded_img.size(dim_idx) - original_size[
+            dim_idx + 3]  # calculate the difference in each dimension
+        padding_before = diff // 2  # calculate padding before
+        padding_after = diff - padding_before  # calculate padding after
+        slices += slice(padding_before,
+                        padding_before + original_size[dim_idx + 3]),  # slice to remove padding
+
+    unpadded = padded_img[..., slices[0], slices[1], slices[2]]  # use ellipsis to keep the first two dimensions (batch and channel) unchanged
+    return unpadded
