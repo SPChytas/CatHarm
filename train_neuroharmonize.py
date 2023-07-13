@@ -76,7 +76,7 @@ print(f'Selected device: {device}')
 ############################################ <Data> ############################################
 
 ##### Covariates #####
-all_data = pd.read_csv(args.file + '/metadata_g2.csv')
+all_data = pd.read_csv(args.file + '/metadata.csv')
 all_data.to_csv(args.output_file + '/metadata.csv')
 
 # Replace str with numbers and drop useless columns
@@ -106,7 +106,7 @@ print (all_data.dtypes)
 
 
 ##### MRIs #####
-nifti_list = pd.read_csv(args.file + '/registered_files_g2.csv')
+nifti_list = pd.read_csv(args.file + '/registered_files.csv')
 
 names = nifti_list['PATH'].str.split('/')
 names = [args.output_file + '/images/' + n[-1] for n in names]
