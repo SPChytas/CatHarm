@@ -75,8 +75,9 @@ class image_dataset(Dataset):
 			image /= max(np.max(image), -np.min(image))
 
 
-		return torch.unsqueeze(torch.FloatTensor(image), 0), torch.FloatTensor([self.metadata[index]])
-
-
+		if (len(self.metadata.shape) == 1):
+			return torch.unsqueeze(torch.FloatTensor(image), 0), torch.FloatTensor([self.metadata[index]])
+		else:
+			return torch.unsqueeze(torch.FloatTensor(image), 0), torch.FloatTensor(self.metadata[index])
 
 

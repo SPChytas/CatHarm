@@ -43,7 +43,7 @@ parser.add_argument('--seed', type=int, default=42)
 # parser.add_argument('--invariant_variables', nargs='+', type=str, default=['mri_coil_name', 'scanner_source'])
 parser.add_argument('--equivariant_variables', nargs='+', type=str, default=['sex', 'Age quant'])
 
-parser.add_argument('--age_bin', type=float, default=10)
+parser.add_argument('--age_bin', type=float, default=5)
 
 args = parser.parse_args()
 
@@ -82,6 +82,7 @@ print(f'Selected device: {device}')
 
 # Load metadata
 metadata = pd.read_csv(args.file + '/metadata.csv')
+metadata.to_csv(args.output_file + '/metadata.csv')
 
 metadata['sex'].replace({'Male': 0, 'Female': 1}, inplace=True)
 metadata['Age quant'] = (metadata['mri_age_at_appointment']//args.age_bin).astype(int)
@@ -100,6 +101,16 @@ paths_train, paths_val, metadata_train, metadata_val = train_test_split(paths, n
 
 
 
+nifti_list = pd.read_csv(args.file + '/registered_files.csv')
+
+names = nifti_list['PATH'].str.split('/')
+names = [args.output_file + '/images/' + n[-1] for n in names]
+
+nifti_list['PATH_NEW'] = names
+
+
+new_files = pd.DataFrame(names, columns=['PATH'])
+new_files.to_csv(args.output_file + '/registered_files.csv', index=False)
 
 
 
@@ -126,8 +137,24 @@ val_generator = DataLoader(val_dataset, **params)
 latent_dim = args.latent_dim
 
 model = AutoEncoder(final_latent_space_dim=latent_dim).to(device)
-up_matrices = [Variable(torch.normal(mean=0, std=0.1, size=(latent_dim, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
-down_matrices = [Variable(torch.normal(mean=0, std=0.1, size=(latent_dim, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
+up_matrices = [Variable(torch.normal(mean=0, std=0.01, size=(latent_dim, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
+down_matrices = [Variable(torch.normal(mean=0, std=0.01, size=(latent_dim, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
+
+
+
+param_size = 0
+for param in model.parameters():
+    param_size += param.nelement() * param.element_size()
+
+buffer_size = 0
+for buffer in model.buffers():
+    buffer_size += buffer.nelement() * buffer.element_size()
+
+
+
+size_all_gb = (param_size + buffer_size) / 1024**3
+print('model size: {:.3f}GB'.format(size_all_gb))
+
 
 
 loss_mse = torch.nn.MSELoss()
@@ -148,6 +175,8 @@ train_stats = {'train_loss': [],
 			   'val_recon_loss': [],
 			   'val_morph_loss': []}
 
+
+best_val_loss = float('inf')
 
 
 max_epochs = args.epochs
@@ -170,17 +199,16 @@ for epoch in range(max_epochs):
 		X = batch[0].to(device)
 		mdata = batch[1]
 
-		print (X.shape)
-
 		X_out, latent = model(X)
-
-		print (X_out.shape, latent.shape)
 
 		recon_loss = loss_mse(X, X_out)
 
 		
 		# Morphisms preserving
 		morph_loss = 0
+
+		device = 'cpu'
+		latent = latent.to(device)
 
 		matrices_powers = []
 		differences = []
@@ -195,9 +223,10 @@ for epoch in range(max_epochs):
 			max_neg_dif = -differences[variable_index].min()
 
 			for p in range(1, max_neg_dif+1):
-				matrices_powers[variable_index][p] = torch.linalg.matrix_power(down_matrices[variable_index], p)
+				matrices_powers[variable_index][p] = torch.linalg.matrix_power(down_matrices[variable_index].to(device), p)
 			for p in range(1, max_pos_dif+1):
-				matrices_powers[variable_index][-p] = torch.linalg.matrix_power(up_matrices[variable_index], p)
+				matrices_powers[variable_index][-p] = torch.linalg.matrix_power(up_matrices[variable_index].to(device), p)
+				
 
 			
 
@@ -231,8 +260,8 @@ for epoch in range(max_epochs):
 		# Inverse loss
 		inv_loss = 0
 		for i in range(len(args.equivariant_variables)):
-			inv_loss += loss_mse(torch.matmul(up_matrices[i], down_matrices[i]), torch.eye(args.latent_dim).to(device))
-			inv_loss += loss_mse(torch.matmul(down_matrices[i], up_matrices[i]), torch.eye(args.latent_dim).to(device))
+			inv_loss += loss_mse(torch.matmul(up_matrices[i].to(device), down_matrices[i].to(device)), torch.eye(args.latent_dim).to(device))
+			inv_loss += loss_mse(torch.matmul(down_matrices[i].to(device), up_matrices[i].to(device)), torch.eye(args.latent_dim).to(device))
 		
 
 		# Update parameters
@@ -249,6 +278,11 @@ for epoch in range(max_epochs):
 		optimizer.step()
 
 		progress_bar.set_description("%3d/%3d - Train loss: %.4f (Recon: %.4f, Morph: %.8f, Inv: %.2f)" % (epoch+1, max_epochs, loss, recon_loss, morph_loss, inv_loss))
+
+		device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+		del X, X_out, latent, matrices_powers
+		torch.cuda.empty_cache()
 
 
 
@@ -276,15 +310,17 @@ for epoch in range(max_epochs):
 			X = batch[0].to(device)
 			mdata = batch[1]
 
-			X_out, _, latent = model(X)
+			X_out, latent = model(X)
 
 		
 			recon_loss += loss_mse(X, X_out)
-
 			
 			# Morphisms preserving
 			matrices_powers = []
 			differences = []
+
+			device = 'cpu'
+			latent = latent.to(device)
 
 			for variable_index in range(len(args.equivariant_variables)):
 
@@ -296,9 +332,9 @@ for epoch in range(max_epochs):
 				max_neg_dif = -differences[variable_index].min()
 
 				for p in range(1, max_neg_dif+1):
-					matrices_powers[variable_index][p] = torch.linalg.matrix_power(down_matrices[variable_index], p)
+					matrices_powers[variable_index][p] = torch.linalg.matrix_power(down_matrices[variable_index].to(device), p)
 				for p in range(1, max_pos_dif+1):
-					matrices_powers[variable_index][-p] = torch.linalg.matrix_power(up_matrices[variable_index], p)
+					matrices_powers[variable_index][-p] = torch.linalg.matrix_power(up_matrices[variable_index].to(device), p)
 
 				
 
@@ -328,6 +364,11 @@ for epoch in range(max_epochs):
 			morph_loss /= X.shape[0]**2	
 
 			
+			device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+			del X, X_out, latent, matrices_powers
+			torch.cuda.empty_cache()
+
 
 		recon_loss /=len(val_generator)
 		morph_loss /=len(val_generator)
@@ -341,13 +382,17 @@ for epoch in range(max_epochs):
 		
 
 
-	torch.save(model.state_dict(), args.output_file + '/models/model_%d' %(epoch))
+	if (train_stats['val_loss'][-1] <= best_val_loss):
 
-	for i, up_matrix in enumerate(up_matrices):
-		torch.save(up_matrix, args.output_file + '/models/up_matrix_%d_%d' %(i, epoch))
+		best_val_loss = train_stats['val_loss'][-1]
 
-	for i, down_matrix in enumerate(down_matrices):
-		torch.save(down_matrix, args.output_file + '/models/down_matrix_%d_%d' %(i, epoch))
+		torch.save(model.state_dict(), args.output_file + '/models/model')
+
+		for i, up_matrix in enumerate(up_matrices):
+			torch.save(up_matrix, args.output_file + '/models/up_matrix_%d' %(i))
+
+		for i, down_matrix in enumerate(down_matrices):
+			torch.save(down_matrix, args.output_file + '/models/down_matrix_%d' %(i))
 
 
 
