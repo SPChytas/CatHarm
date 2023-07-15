@@ -20,7 +20,7 @@ import os
 import argparse
 
 from utils import metrics
-from utils.models import AutoEncoder
+from utils.models import AutoEncoder, AutoEncoderWithoutShortcuts
 from utils.data_loader import image_dataset
 
 import sys
@@ -36,6 +36,7 @@ parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--morph_loss_factor', type=float, default=1)
 parser.add_argument('--preload', action='store_true')
+parser.add_argument('--skip_connections', action='store_true')
 
 
 parser.add_argument('--seed', type=int, default=42)
@@ -136,7 +137,12 @@ val_generator = DataLoader(val_dataset, **params)
 # ############################################ <Model> ############################################
 latent_dim = args.latent_dim
 
-model = AutoEncoder(final_latent_space_dim=latent_dim).to(device)
+
+if (args.skip_connections):
+	model = AutoEncoder(final_latent_space_dim=latent_dim).to(device)
+else:
+	model = AutoEncoderWithoutShortcuts(final_latent_space_dim=latent_dim).to(device)
+
 up_matrices = [Variable(torch.normal(mean=0, std=0.01, size=(latent_dim, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
 down_matrices = [Variable(torch.normal(mean=0, std=0.01, size=(latent_dim, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
 
