@@ -91,7 +91,7 @@ with torch.no_grad():
 		image = nib.load(p).get_fdata()
 		image[np.isnan(image)] = np.mean(image[~np.isnan(image)])
 
-		div = max(np.max(image), -np.min(image))
+		div = 1 #max(np.max(image), -np.min(image))
 		image /= div
 
 		image = torch.unsqueeze(torch.FloatTensor(image), 0).to(device)

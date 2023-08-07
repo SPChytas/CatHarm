@@ -55,7 +55,7 @@ class image_dataset(Dataset):
 				
 				image = nib.load(self.files_path[i]).get_fdata()
 				image[np.isnan(image)] = np.mean(image[~np.isnan(image)])
-				image /= max(np.max(image), -np.min(image))
+				# image /= max(np.max(image), -np.min(image))
 
 				self.images.append(image)
 
@@ -72,7 +72,7 @@ class image_dataset(Dataset):
 			############ Normalization??
 			image = nib.load(self.files_path[index]).get_fdata()
 			image[np.isnan(image)] = np.mean(image[~np.isnan(image)])
-			image /= max(np.max(image), -np.min(image))
+			# image /= max(np.max(image), -np.min(image))
 
 
 		if (len(self.metadata.shape) == 1):
