@@ -49,14 +49,27 @@ class image_dataset(Dataset):
 		self.images = []
 		self.preload = preload
 
+
+		self.max_val = -float('inf')
+		self.min_val = float('inf')
+
+		for i in range(len(self.files_path)):
+				
+			image = nib.load(self.files_path[i]).get_fdata()
+			self.min_val = np.nanmin(image)
+			self.max_val = np.nanmax(image)
+
+
+
+
 		if (self.preload):
 			
 			for i in tqdm(range(len(self.files_path)), desc='Preloading...'):
 				
 				image = nib.load(self.files_path[i]).get_fdata()
-				image[np.isnan(image)] = np.mean(image[~np.isnan(image)])
-				# image /= max(np.max(image), -np.min(image))
-
+				image = (image - self.min_val)/(self.max_val - self.min_val)
+				image[np.isnan(image) | np.isinf(image)] = 0
+				
 				self.images.append(image)
 
 
@@ -69,10 +82,9 @@ class image_dataset(Dataset):
 		if (self.preload):
 			image = self.images[index]
 		else:
-			############ Normalization??
 			image = nib.load(self.files_path[index]).get_fdata()
-			image[np.isnan(image)] = np.mean(image[~np.isnan(image)])
-			# image /= max(np.max(image), -np.min(image))
+			image = (image - self.min_val)/(self.max_val - self.min_val)
+			image[np.isnan(image) | np.isinf(image)] = 0
 
 
 		if (len(self.metadata.shape) == 1):

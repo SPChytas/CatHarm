@@ -6,6 +6,8 @@ import torch.nn.functional as F
 
 import math
 
+from .AttenionWithoutShortcuts import AttentionWithoutShortcutsLayer
+
 # from unet_parts import *
 
 class MLP_encdec(nn.Module):
@@ -41,7 +43,6 @@ class MLP_encdec(nn.Module):
 				x = self.act[i](x)
 
 		return x
-
 
 class MLP(nn.Module):
 	def __init__(self, in_depth, hidden_depths, out_depth, batchnorm=True, dropout=0., classification=True):
@@ -123,6 +124,8 @@ class Encoder(nn.Module):
 		embedding_dropout: the percentage of drop-out after position embedding (before vit encoder)
 		final_latent_space_dim: the final latent space dimension that the user want
 								e.g. [1, final_latent_space_dim]
+		attention_without_shortcuts: is there a shortcut/residual connection in the Multi-Head Attention layer?
+									 default = False
 
 		Note: We recommend using the default value in the arguments starting with *.
 			  Some unknown errors will occur if the arguments starting with * are changed.
@@ -141,7 +144,8 @@ class Encoder(nn.Module):
 				 attention_dropout: float = .0,
 				 mlp_dropout: float = .1,
 				 embedding_dropout: float = .1,
-				 final_latent_space_dim: int = 2048):
+				 final_latent_space_dim: int = 2048,
+				 attention_without_shortcuts: bool = False):
 		super().__init__()
 		self.conv_block= Consecutive3DConvLayerBlock(in_channel = conv_in_channels,
 													  out_channel = conv_out_channels,
@@ -158,7 +162,9 @@ class Encoder(nn.Module):
 									attention_dropout = attention_dropout,
 									mlp_dropout = mlp_dropout,
 									embedding_dropout = embedding_dropout,
-									final_latent_space_dim = final_latent_space_dim)
+									final_latent_space_dim = final_latent_space_dim,
+									attention_without_shortcuts = attention_without_shortcuts,
+									max_layers = num_transformer_layer if attention_without_shortcuts else None)
 	def forward(self, x):
 		x, cache = self.conv_block(x)
 		x, _ = self.vit_block(x)
@@ -187,6 +193,8 @@ class AutoEncoder(nn.Module):
 	embedding_dropout: the percentage of drop-out after position embedding (before vit encoder)
 	final_latent_space_dim: the final latent space dimension that the user want
 							e.g. [1, final_latent_space_dim]
+	attention_without_shortcuts: is there a shortcut/residual connection in the Multi-Head Attention layer?
+									 default = False
 
 	Note: We recommend using the default value in the arguments starting with *.
 		  Some unknown errors will occur if the arguments starting with * are changed.
@@ -205,7 +213,8 @@ class AutoEncoder(nn.Module):
 				 attention_dropout: float = .0,
 				 mlp_dropout: float = .1,
 				 embedding_dropout: float = .1,
-				 final_latent_space_dim: int = 2048):
+				 final_latent_space_dim: int = 2048,
+				 attention_without_shortcuts: bool = False):
 		super().__init__()
 
 		assert conv_out_channels == 64 or conv_out_channels == 256, "Unsupportable Channels"
@@ -225,7 +234,9 @@ class AutoEncoder(nn.Module):
 									attention_dropout = attention_dropout,
 									mlp_dropout = mlp_dropout,
 									embedding_dropout = embedding_dropout,
-									final_latent_space_dim = final_latent_space_dim)
+									final_latent_space_dim = final_latent_space_dim,
+									attention_without_shortcuts = attention_without_shortcuts,
+									max_layers = num_transformer_layer if attention_without_shortcuts else None)
 		self.initial_residual = InitialResidualNet(final_latent_space_dim = final_latent_space_dim,
 												   patch_size = patch_size,
 												   embedding_dim = embedding_dim,
@@ -273,6 +284,8 @@ class AutoEncoderWithoutShortcuts(nn.Module):
 		embedding_dropout: the percentage of drop-out after position embedding (before vit encoder)
 		final_latent_space_dim: the final latent space dimension that the user want
 								e.g. [1, final_latent_space_dim]
+		attention_without_shortcuts: is there a shortcut/residual connection in the Multi-Head Attention layer?
+									 default = False
 
 		Note: We recommend using the default value in the arguments starting with *.
 			  Some unknown errors will occur if the arguments starting with * are changed.
@@ -291,7 +304,8 @@ class AutoEncoderWithoutShortcuts(nn.Module):
 				 attention_dropout: float = .0,
 				 mlp_dropout: float = .1,
 				 embedding_dropout: float = .1,
-				 final_latent_space_dim: int = 2048):
+				 final_latent_space_dim: int = 2048,
+				 attention_without_shortcuts: bool = False):
 		super().__init__()
 		assert conv_out_channels == 64 or conv_out_channels == 256, "Unsupportable Channels"
 
@@ -310,7 +324,9 @@ class AutoEncoderWithoutShortcuts(nn.Module):
 									attention_dropout = attention_dropout,
 									mlp_dropout = mlp_dropout,
 									embedding_dropout = embedding_dropout,
-									final_latent_space_dim = final_latent_space_dim)
+									final_latent_space_dim = final_latent_space_dim,
+									attention_without_shortcuts = attention_without_shortcuts,
+									max_layers = num_transformer_layer if attention_without_shortcuts else None)
 		self.initial_residual = InitialResidualNet(final_latent_space_dim = final_latent_space_dim,
 												   patch_size = patch_size,
 												   embedding_dim = embedding_dim,
@@ -338,6 +354,78 @@ class AutoEncoderWithoutShortcuts(nn.Module):
 
 		return x, latent_space
 
+
+
+
+class CatHarm(nn.Module):
+
+	def __init__(self, equvariant_variables: int = 2):
+
+		self.autoencoder = AutoEncoderWithoutShortcuts()
+
+		self.equvariant_variables = equvariant_variables
+		self.up_matrices = nn.ModuleList([Variable(torch.normal(mean=0, std=0.01, size=(latent_dim, latent_dim)), requires_grad=True) for _ in range(len(equivariant_variables))])
+		self.down_matrices = nn.ModuleList([Variable(torch.normal(mean=0, std=0.01, size=(latent_dim, latent_dim)), requires_grad=True) for _ in range(len(equivariant_variables))])
+
+
+
+	def forward(self, imgs, mdata):
+
+		# pass through the autoencoder
+		imgs_out, latent = self.autoencoder(imgs)
+
+
+		# latent space harmonization
+		matrices_powers = []
+		differences = []
+
+		## precompute all powers
+		for variable_index in range(len(self.equivariant_variables)):
+
+			differences.append((np.repeat(np.array(mdata[:, variable_index]).reshape((-1, 1)), mdata.shape[0], 1) - np.array(mdata[:, variable_index])).astype(int))
+			max_pos_dif = differences[variable_index].max()
+			max_neg_dif = -differences[variable_index].min()
+
+			matrices_powers.append({0: torch.eye(latent_dim).to(device)})
+
+			for p in range(1, max_neg_dif+1):
+				matrices_powers[variable_index][p] = torch.linalg.matrix_power(down_matrices[variable_index].to(device), p)
+			for p in range(1, max_pos_dif+1):
+				matrices_powers[variable_index][-p] = torch.linalg.matrix_power(up_matrices[variable_index].to(device), p)
+				
+		## compute pairwise differences
+		true_latents = []
+		pred_latents = []
+
+		for i in range(mdata.shape[0]):
+			for j in range(i+1, mdata.shape[0]):
+
+				current_matrix = torch.eye(latent_dim).to(device)
+				for variable_index in range(len(args.equivariant_variables)): 
+					current_matrix = current_matrix @ matrices_powers[variable_index][differences[variable_index][i, j]]
+
+				latent_mul = torch.matmul(latent[i], current_matrix)
+				true_latents.append(torch.unsqueeze(latent[j], 0))
+				pred_latents.append(torch.unsqueeze(latent_mul, 0))
+
+				current_matrix = torch.eye(latent_dim).to(device)
+				for variable_index in range(len(args.equivariant_variables)): 
+					current_matrix = current_matrix @ matrices_powers[variable_index][differences[variable_index][j, i]]
+
+				latent_mul = torch.matmul(latent[j], current_matrix)
+				true_latents.append(torch.unsqueeze(latent[i], 0))
+				pred_latents.append(torch.unsqueeze(latent_mul, 0))
+
+
+		true_latents = torch.cat(true_latents)
+		pred_latents = torch.cat(pred_latents)
+
+		return imgs_out, true_latents, pred_latents
+
+
+
+
+
 class ViTEncoder(nn.Module):
 	def __init__(self,
 				 in_channels: int = 1,
@@ -350,7 +438,9 @@ class ViTEncoder(nn.Module):
 				 attention_dropout: float = .0,
 				 mlp_dropout: float = .1,
 				 embedding_dropout: float = .1,
-				 final_latent_space_dim: int = 2048):
+				 final_latent_space_dim: int = 2048,
+				 attention_without_shortcuts: bool = False,
+				 max_layers: int = None):
 		super().__init__()
 
 		self.num_patches = out_channels * patch_size ** 3 // patch_size ** 2
@@ -364,6 +454,8 @@ class ViTEncoder(nn.Module):
 		self.patch_embedding = PatchEmbedding(in_channels = in_channels,
 											  patch_size = patch_size,
 											  embedding_dim = embedding_dim)
+		if attention_without_shortcuts and max_layers is None:
+			raise ValueError("[ERROR]When attention_without_shortcuts = True, max_layer must be provided.")
 
 		self.transformer_encoder = nn.Sequential(*[TransformerEncoder(embedding_dim =
 																	  embedding_dim,
@@ -371,7 +463,9 @@ class ViTEncoder(nn.Module):
 																	  mlp_size = mlp_size,
 																	  mlp_dropout = mlp_dropout,
 																	  attention_dropout =
-																	  attention_dropout) for _
+																	  attention_dropout,
+																	  attention_without_shortcuts = attention_without_shortcuts,
+																	  max_layers = max_layers) for _
 												 in range(num_transformer_layer)])
 
 		self.latent_space = nn.Sequential(
@@ -472,7 +566,6 @@ class PatchEmbedding(nn.Module):
 		x = self.flatten(x)
 		return x.permute(0, 2, 1)
 
-
 class PositionEmbedding(nn.Module):
 	def __init__(self,
 				 out_channel: int = 64,
@@ -487,22 +580,34 @@ class PositionEmbedding(nn.Module):
 		return x + self.position_matrix
 
 class MultiheadSelfAttention(nn.Module):
+	# Warning: If attention_without_shortcuts = True, then max_layer must be specified
+	# Warning: max_layer must be the maximal number of consecutive AttentionLayers
 	def __init__(self,
 				 embedding_dim: int = 256,
 				 num_heads: int = 8,
-				 attention_dropout: float = .0):
+				 attention_dropout: float = .0,
+				 attention_without_shortcuts: bool = False,
+				 max_layer: int = None):
 		super().__init__()
 		self.layer_norm = nn.LayerNorm(normalized_shape = embedding_dim)
-		self.multihead_attention = nn.MultiheadAttention(embed_dim = embedding_dim,
+		if attention_without_shortcuts:
+			if max_layer is None:
+				raise ValueError("[ERROR]When attention_without_shortcuts = True, max_layer must be provided.")
+			
+			self.multihead_attention = AttentionWithoutShortcutsLayer(
+					sequence_length = 1024 if embedding_dim == 256 else 4096,
+					embedding_dim = embedding_dim,
+					num_heads = num_heads,
+					max_layers = max_layer)
+		else:
+			self.multihead_attention = nn.MultiheadAttention(embed_dim = embedding_dim,
 														 num_heads = num_heads,
 														 dropout = attention_dropout,
 														 batch_first = True)
 
 	def forward(self, x):
 		x = self.layer_norm(x)
-		attention_output, _ = self.multihead_attention(query = x,
-													   key = x,
-													   value = x,
+		attention_output, _ = self.multihead_attention(x, x, x,
 													   need_weights = False)
 		return attention_output
 
@@ -531,11 +636,17 @@ class TransformerEncoder(nn.Module):
 				 num_heads: int = 8,
 				 mlp_size: int = 2048,
 				 mlp_dropout: float = .1,
-				 attention_dropout: float = .0):
+				 attention_dropout: float = .0,
+				 attention_without_shortcuts: bool = False,
+				 max_layers: int = None):
 		super().__init__()
+		if attention_without_shortcuts and max_layers is None:
+			raise ValueError("[ERROR]When attention_without_shortcuts = True, max_layers must be specified.")
 		self.msa_block = MultiheadSelfAttention(embedding_dim = embedding_dim,
 												num_heads =  num_heads,
-												attention_dropout = attention_dropout)
+												attention_dropout = attention_dropout,
+												attention_without_shortcuts = attention_without_shortcuts,
+												max_layer = max_layers)
 		self.mlp_block = MultiLayerPerception(embedding_dim = embedding_dim,
 											  mlp_size = mlp_size,
 											  mlp_dropout = mlp_dropout)
@@ -608,7 +719,6 @@ class InitialResidualNet(nn.Module):
 
 		return output
 
-
 class DecodeConsecutiveConvNets(nn.Module):
 	def __init__(self,
 				 in_channel: int = 1,
@@ -651,7 +761,6 @@ class DecodeConsecutiveConvNets(nn.Module):
 			"original_data"]
 
 		return x
-
 
 def _unpad_3D_image_patches_with_channel(padded_img, original_size):
     # original_size should be a tuple: (original_dim1, original_dim2, original_dim3)

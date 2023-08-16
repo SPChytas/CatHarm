@@ -37,6 +37,7 @@ parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--morph_loss_factor', type=float, default=1)
 parser.add_argument('--preload', action='store_true')
 parser.add_argument('--skip_connections', action='store_true')
+parser.add_argument('--low_rank', action='store_true')
 
 
 parser.add_argument('--seed', type=int, default=42)
@@ -139,12 +140,23 @@ latent_dim = args.latent_dim
 
 
 if (args.skip_connections):
-	model = AutoEncoder(final_latent_space_dim=latent_dim).to(device)
+	model = AutoEncoder(final_latent_space_dim=latent_dim, num_transformer_layer=6).to(device)
 else:
-	model = AutoEncoderWithoutShortcuts(final_latent_space_dim=latent_dim).to(device)
+	model = AutoEncoderWithoutShortcuts(final_latent_space_dim=latent_dim, attention_without_shortcuts=False, num_transformer_layer=4).to(device)
 
-up_matrices = [Variable(torch.normal(mean=0, std=0.01, size=(latent_dim, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
-down_matrices = [Variable(torch.normal(mean=0, std=0.01, size=(latent_dim, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
+
+if (args.low_rank):
+
+	inter_dimension = 10
+
+	up_matrices_L = [Variable(torch.normal(mean=0, std=0.01, size=(latent_dim, inter_dimension)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
+	up_matrices_R = [Variable(torch.normal(mean=0, std=0.01, size=(inter_dimension, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
+	down_matrices_L = [Variable(torch.normal(mean=0, std=0.01, size=(latent_dim, inter_dimension)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
+	down_matrices_R = [Variable(torch.normal(mean=0, std=0.01, size=(inter_dimension, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
+
+else:
+	up_matrices = [Variable(torch.normal(mean=0, std=0.01, size=(latent_dim, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
+	down_matrices = [Variable(torch.normal(mean=0, std=0.01, size=(latent_dim, latent_dim)).to(device), requires_grad=True) for _ in range(len(args.equivariant_variables))]
 
 
 
@@ -164,6 +176,7 @@ print('model size: {:.3f}GB'.format(size_all_gb))
 
 
 loss_mse = torch.nn.MSELoss()
+loss_l1 = torch.nn.L1Loss()
 optimizer = optim.Adam([{'params': model.parameters()}] +
 					   [{'params': up_matrix} for up_matrix in up_matrices] +
 					   [{'params': down_matrix} for down_matrix in down_matrices], lr=args.lr)
@@ -205,9 +218,11 @@ for epoch in range(max_epochs):
 		X = batch[0].to(device)
 		mdata = batch[1]
 
+
+
 		X_out, latent = model(X)
 
-		recon_loss = loss_mse(X, X_out)
+		recon_loss = loss_l1(X, X_out)
 
 		
 		# Morphisms preserving
@@ -221,21 +236,17 @@ for epoch in range(max_epochs):
 
 		for variable_index in range(len(args.equivariant_variables)):
 
-			matrices_powers.append({0: torch.eye(latent_dim).to(device)})
 			differences.append((np.repeat(np.array(mdata[:, variable_index]).reshape((-1, 1)), mdata.shape[0], 1) - np.array(mdata[:, variable_index])).astype(int))
-
-
 			max_pos_dif = differences[variable_index].max()
 			max_neg_dif = -differences[variable_index].min()
+
+			matrices_powers.append({0: torch.eye(latent_dim).to(device)})
 
 			for p in range(1, max_neg_dif+1):
 				matrices_powers[variable_index][p] = torch.linalg.matrix_power(down_matrices[variable_index].to(device), p)
 			for p in range(1, max_pos_dif+1):
 				matrices_powers[variable_index][-p] = torch.linalg.matrix_power(up_matrices[variable_index].to(device), p)
 				
-
-			
-
 
 		for i in range(mdata.shape[0]):
 			for j in range(i+1, mdata.shape[0]):
@@ -247,8 +258,6 @@ for epoch in range(max_epochs):
 				latent_mul = torch.matmul(latent[i], current_matrix)
 				# Maybe cs would be better
 				morph_loss += loss_mse(latent[j], latent_mul)
-
-
 
 				current_matrix = torch.eye(latent_dim).to(device)
 				for variable_index in range(len(args.equivariant_variables)): 

@@ -22,7 +22,7 @@ class AttentionWithoutShortcutsLayer(nn.Module):
                  embedding_dim: int,
                  num_heads: int,
                  max_layers: int,  # warning: must be consecutive attention layers
-                 Gamma: int,
+                 Gamma: int = 1e3,
                  is_cross_attention: bool = False,
                  dim_q: int = 0,
                  dim_k: int = 0,
