@@ -5,7 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 import math
-from torchvision.models.vision_transformer import VisionTransformer
+# from utils.VIT import VisionTransformer
+from utils.VIT import VisionTransformer
 
 class Encoder(nn.Module):
     """
@@ -290,10 +291,10 @@ class AutoEncoderWithoutShortcuts(nn.Module):
                  padding: bool = True,
                  batch_norm: bool = True,
                  patch_size: int = 16,
-                 num_transformer_layer: int = 12,
+                 num_transformer_layer: int = 6,
                  embedding_dim: int = 256,
-                 mlp_size: int = 2048,
-                 num_heads: int = 8,
+                 mlp_size: int = 1024,
+                 num_heads: int = 4,
                  attention_dropout: float = .0,
                  mlp_dropout: float = .1,
                  embedding_dropout: float = .1,
@@ -318,7 +319,8 @@ class AutoEncoderWithoutShortcuts(nn.Module):
         #                             embedding_dropout=embedding_dropout,
         #                             final_latent_space_dim=final_latent_space_dim)
 
-        self.vit_block = VisionTransformer(image_size=512, patch_size=patch_size, num_layers=12, num_heads=8, hidden_dim=embedding_dim, mlp_dim=mlp_size)
+        
+        self.vit_block = VisionTransformer(image_size=512, patch_size=patch_size, num_layers=num_transformer_layer, num_heads=num_heads, hidden_dim=embedding_dim, mlp_dim=mlp_size, final_latent_space_dim= final_latent_space_dim)
         
         self.initial_residual = InitialResidualNet(final_latent_space_dim=final_latent_space_dim,
                                                    patch_size=patch_size,
@@ -334,10 +336,12 @@ class AutoEncoderWithoutShortcuts(nn.Module):
 
     def forward(self, x):
         x= self.conv_block(x)
+        # print(x.shape)
+        
         x = self.vit_block(x)
-    
-        latent_space = x.clone()
 
+        # print(x.shape)
+    
         # zero the skip connections
         # patch_embedded = torch.zero_(patch_embedded)
         # print(patch_embedded.shape)
@@ -345,7 +349,7 @@ class AutoEncoderWithoutShortcuts(nn.Module):
         x = self.initial_residual(x)
         x = self.consecutive_transpose_convnets(x)
 
-        return x, latent_space
+        return x
 
 
 class ViTEncoder(nn.Module):
